@@ -118,6 +118,17 @@ class ContextTrackerConfig:
     # Whether to proactively expand based on query analysis
     proactive_expansion: bool = True
 
+    # Maximum conversational distance for proactive expansion. ``None`` keeps
+    # the legacy wall-clock-only behavior. The proxy default is intentionally
+    # bounded because fast coding-agent sessions can advance many compression
+    # turns inside the 5-minute wall-clock TTL (GH #709).
+    max_context_turn_distance: int | None = 20
+
+    # Half-life, in turns, for relevance scoring. A value of 10 means a
+    # context 10 compression-turns away receives a 0.5 multiplier before the
+    # existing wall-clock age discount. ``None`` disables turn decay.
+    turn_decay_half_life: float | None = 10.0
+
     # Maximum items to proactively expand per turn
     max_proactive_expansions: int = 2
 
@@ -284,12 +295,33 @@ class ContextTracker:
             if age > self.config.max_context_age_seconds:
                 continue
 
+            # Conversational distance is a second freshness signal. The
+            # tracker already stores the compression turn and receives the
+            # current turn; using both prevents fast agentic sessions from
+            # treating dozens of turns as fresh merely because they happened
+            # within the wall-clock TTL.
+            turn_distance = max(0, self._current_turn - context.turn_number)
+            if (
+                self.config.max_context_turn_distance is not None
+                and turn_distance > self.config.max_context_turn_distance
+            ):
+                continue
+
             # Calculate relevance
             relevance = self._calculate_relevance(query, context)
 
-            # Age discount: older contexts get lower scores
+            # Wall-clock age discount: older contexts get lower scores.
             age_factor = 1.0 - (age / self.config.max_context_age_seconds) * 0.5
             relevance *= age_factor
+
+            # Turn-distance decay: fast agentic sessions can advance many
+            # compression turns without meaningful wall-clock delay. Apply a
+            # configurable exponential half-life so relevance decays with
+            # conversational distance as well as elapsed time.
+            if self.config.turn_decay_half_life is not None:
+                if self.config.turn_decay_half_life <= 0:
+                    raise ValueError("turn_decay_half_life must be positive")
+                relevance *= 0.5 ** (turn_distance / self.config.turn_decay_half_life)
 
             if relevance >= self.config.relevance_threshold:
                 recommendations.append(

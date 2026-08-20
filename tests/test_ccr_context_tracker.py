@@ -347,6 +347,80 @@ class TestQueryAnalysis:
         assert len(recommendations) <= 2
 
 
+
+
+class TestTurnAwareFreshness:
+    """Test conversational-distance freshness for fast agentic sessions."""
+
+    def _track(self, tracker: ContextTracker, turn: int, hash_key: str = "auth") -> None:
+        tracker.track_compression(
+            hash_key=hash_key,
+            turn_number=turn,
+            tool_name="Grep",
+            original_count=100,
+            compressed_count=10,
+            query_context="find authentication middleware files",
+            sample_content="authentication middleware auth_handler.py security",
+            workspace_key="ws-test",
+        )
+
+    def test_turn_distance_filters_stale_fast_agent_context(self):
+        tracker = ContextTracker(ContextTrackerConfig(max_context_turn_distance=5))
+        self._track(tracker, turn=1)
+
+        recommendations = tracker.analyze_query(
+            "show authentication middleware", current_turn=7, workspace_key="ws-test"
+        )
+
+        assert recommendations == []
+
+    def test_turn_distance_preserves_recent_context(self):
+        tracker = ContextTracker(ContextTrackerConfig(max_context_turn_distance=5))
+        self._track(tracker, turn=5)
+
+        recommendations = tracker.analyze_query(
+            "show authentication middleware", current_turn=7, workspace_key="ws-test"
+        )
+
+        assert recommendations
+        assert recommendations[0].hash_key == "auth"
+
+    def test_turn_decay_lowers_score_without_hard_filter(self):
+        tracker = ContextTracker(
+            ContextTrackerConfig(
+                max_context_turn_distance=None,
+                turn_decay_half_life=10.0,
+                relevance_threshold=0.01,
+            )
+        )
+        self._track(tracker, turn=1)
+        recent = tracker.analyze_query(
+            "show authentication middleware", current_turn=2, workspace_key="ws-test"
+        )[0].relevance_score
+        older = tracker.analyze_query(
+            "show authentication middleware", current_turn=11, workspace_key="ws-test"
+        )[0].relevance_score
+
+        assert older < recent
+        assert older == pytest.approx(recent * 0.5 ** (9 / 10), rel=1e-6)
+
+    def test_none_turn_distance_preserves_legacy_behavior(self):
+        tracker = ContextTracker(
+            ContextTrackerConfig(
+                max_context_turn_distance=None,
+                turn_decay_half_life=None,
+            )
+        )
+        self._track(tracker, turn=1)
+
+        recommendations = tracker.analyze_query(
+            "show authentication middleware", current_turn=101, workspace_key="ws-test"
+        )
+
+        assert recommendations
+
+
+
 class TestRelevanceCalculation:
     """Test relevance score calculation."""
 
@@ -594,6 +668,8 @@ class TestContextTrackerConfig:
         assert config.max_tracked_contexts == 100
         assert config.relevance_threshold == 0.3
         assert config.max_context_age_seconds == 300.0
+        assert config.max_context_turn_distance == 20
+        assert config.turn_decay_half_life == 10.0
         assert config.proactive_expansion is True
         assert config.max_proactive_expansions == 2
 

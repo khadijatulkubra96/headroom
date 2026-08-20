@@ -1,0 +1,36 @@
+{
+  "benchmark": "CCR turn-freshness coding-agent workload",
+  "tasks": 8,
+  "scenarios_per_task": 25,
+  "total_scenarios": 200,
+  "policies": {
+    "legacy": {
+      "scenarios": 200,
+      "relevant_retrievals": 134,
+      "stale_retrievals": 266,
+      "total_recommendations": 400,
+      "scenarios_with_relevant": 134,
+      "scenarios_with_stale": 200,
+      "relevant_rate": 0.67,
+      "stale_recommendation_rate": 0.665,
+      "avg_recommendations": 2.0
+    },
+    "turn_aware": {
+      "scenarios": 200,
+      "relevant_retrievals": 200,
+      "stale_retrievals": 0,
+      "total_recommendations": 200,
+      "scenarios_with_relevant": 200,
+      "scenarios_with_stale": 0,
+      "relevant_rate": 1.0,
+      "stale_recommendation_rate": 0.0,
+      "avg_recommendations": 1.0
+    }
+  },
+  "deltas": {
+    "relevant_rate_pp": 32.99999999999999,
+    "stale_recommendation_rate_pp": -66.5,
+    "stale_retrievals_pct_change": -100.0,
+    "avg_recommendations_delta": -1.0
+  }
+}
